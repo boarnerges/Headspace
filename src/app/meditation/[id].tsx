@@ -6,39 +6,79 @@ import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import Slider from "@react-native-community/slider";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Audio } from "expo-av";
 
 export default function MeditationDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState(0); // Total duration in milliseconds
+  const [position, setPosition] = useState(0); // Current position in milliseconds
 
-  const [sound, setSound] = useState();
-
-  async function playSound() {
-    console.log("Loading Sound");
-    const { sound } = await Audio.Sound.createAsync(
-      require("../../../sounds/audio1.mp3")
-    );
-    setSound(sound);
-
-    console.log("Playing Sound");
-    await sound.playAsync();
-  }
-
-  useEffect(() => {
-    return sound
-      ? () => {
-          console.log("Unloading Sound");
-          sound.unloadAsync();
-        }
-      : undefined;
-  }, [sound]);
+  const sliderRef = useRef(null); // Optional for future slider handling
 
   const meditation = meditations.find((m) => m.id === Number(id));
-
   if (!meditation) {
     return <Text>Meditation not found!</Text>;
   }
+
+  // Load and prepare audio
+  async function loadSound() {
+    console.log("Loading sound...");
+    const { sound } = await Audio.Sound.createAsync(
+      require("../../../sounds/audio1.mp3"),
+      { shouldPlay: false }
+    );
+    sound.setOnPlaybackStatusUpdate(updatePlaybackStatus);
+    setSound(sound);
+  }
+
+  // Update playback status
+  const updatePlaybackStatus = (status: Audio.AudioStatus) => {
+    if (status.isLoaded) {
+      setDuration(status.durationMillis || 0);
+      setPosition(status.positionMillis || 0);
+      setIsPlaying(status.isPlaying);
+    }
+  };
+
+  // Toggle play/pause
+  const togglePlayPause = async () => {
+    if (sound) {
+      if (isPlaying) {
+        await sound.pauseAsync();
+      } else {
+        await sound.playAsync();
+      }
+    }
+  };
+
+  // Seek audio position
+  const seekAudio = async (value: number) => {
+    if (sound) {
+      const seekPosition = value * duration;
+      await sound.setPositionAsync(seekPosition);
+    }
+  };
+
+  // Unload audio when component unmounts
+  useEffect(() => {
+    loadSound();
+    return () => {
+      if (sound) {
+        console.log("Unloading sound...");
+        sound.unloadAsync();
+      }
+    };
+  }, []);
+
+  // Format time from milliseconds to mm:ss
+  const formatTime = (ms: number) => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+  };
 
   return (
     <SafeAreaView className="bg-orange-400 flex-1 p-2 justify-between">
@@ -46,13 +86,11 @@ export default function MeditationDetails() {
         <View className="flex-1">
           <View className="flex-row items-center justify-between p-10">
             <AntDesign name="infocirlceo" size={24} color="black" />
-
             <View className="bg-zinc-800 p-2 rounded-md">
               <Text className="text-zinc-100 font-semibold">
                 Today's Meditation
               </Text>
             </View>
-
             <AntDesign
               onPress={() => router.back()}
               name="close"
@@ -66,12 +104,18 @@ export default function MeditationDetails() {
           </Text>
         </View>
 
+        {/* Play/Pause Button */}
         <Pressable
           className="bg-zinc-700 self-center w-20 aspect-square justify-center items-center p-6 rounded-full"
-          onPress={playSound}
+          onPress={togglePlayPause}
         >
-          <FontAwesome6 name="play" size={24} color="snow" />
+          <FontAwesome6
+            name={isPlaying ? "pause" : "play"}
+            size={24}
+            color="snow"
+          />
         </Pressable>
+
         <View className="flex-1">
           <View className="p-5 mt-auto gap-5">
             <View className="flex-row justify-between">
@@ -82,21 +126,26 @@ export default function MeditationDetails() {
                 color="#3A3937"
               />
             </View>
+
+            {/* Slider for playback */}
             <View>
               <Slider
+                ref={sliderRef}
                 style={{ width: "100%", height: 3 }}
                 minimumValue={0}
-                value={0.5}
-                onSlidingComplete={(value) => console.log(value)}
+                value={position / duration || 0}
+                onSlidingComplete={(value) => seekAudio(value)}
                 maximumValue={1}
                 minimumTrackTintColor="#3A3937"
                 maximumTrackTintColor="#3A393755"
                 thumbTintColor="#3A3937"
               />
             </View>
+
+            {/* Current Position and Duration */}
             <View className="flex-row justify-between">
-              <Text>03:24</Text>
-              <Text>13:14</Text>
+              <Text>{formatTime(position)}</Text>
+              <Text>{formatTime(duration)}</Text>
             </View>
           </View>
         </View>
